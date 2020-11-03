@@ -15,7 +15,6 @@ public class TaskQueryForm implements Serializable {
     private Integer pageNum;
     private Integer pageSize;
     private String taskName;
-    private String taskType;
     @DateTimeFormat(pattern = "yyyy-MM-dd")
     @JsonFormat(pattern = "yyyy-MM-dd",timezone="GMT+8")
     private Date startTime;
@@ -25,4 +24,5 @@ public class TaskQueryForm implements Serializable {
     private String vehicleId;
     private List<ParamAO> paramAOList;
     private String shopId;
+    private Long taskTypeId;
 }

@@ -20,6 +20,8 @@ import com.bupt.battery.task.CallMonitorThread;
 import com.bupt.battery.task.ServerTask;
 import com.bupt.battery.util.SpringUtil;
 import org.springframework.web.bind.annotation.*;
+
+import javax.websocket.Session;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.sql.Timestamp;
@@ -55,10 +57,19 @@ public class MonitorController {
         //检查端口号
         for (PortDO port : list) {
             if (Integer.parseInt(form.getPostId()) == port.getPortNum()) {
-                port_error_code = 0;
-                //更新port信息
-                port.setStatus(1);
-                SpringUtil.getBean(IPortDOService.class).update(port);
+                List<ModelMonitorDO> list1 = modelMonitorDOService.findAllByVehicleIdAndPortIdAndModelId(
+                        form.getVehicleId(),
+                        Long.parseLong(form.getPostId()),
+                        Long.parseLong(form.getModelId())
+                );
+                if (list1.size() == 0) {
+                    port_error_code = 0;
+                    //更新port信息
+                    port.setStatus(1);
+                    SpringUtil.getBean(IPortDOService.class).update(port);
+                } else {
+                    port_error_code =2;
+                }
             }
         }
         //检查开始结束时间插是否超过1min
@@ -95,9 +106,14 @@ public class MonitorController {
             object.put("error_code", 0);
             object.put("msg", "新增监控成功！");
         } else {
-            if (port_error_code == 1) {
-                object.put("error_code", 1);
-                object.put("msg", "端口不存在");
+            if (port_error_code != 0) {
+                if (port_error_code == 1) {
+                    object.put("error_code", 1);
+                    object.put("msg", "端口不存在");
+                } else {
+                    object.put("error_code", 4);
+                    object.put("msg", "该端口已存在此车辆监控任务，尝试更换端口号");
+                }
             } else {
                 if (time_error_code == 2) {
                     object.put("error_code", 2);
@@ -165,21 +181,25 @@ public class MonitorController {
 
     @RequestMapping(value = "/realTimeMonitor")
     public void pushToWeb(@RequestBody MonitorDCform form) {
+        String shopId = "realtime" + form.getMonitorId() + form.getTimespot();
+        // System.out.println(shopId);
         WebSocket webSocket = SpringUtil.getBean(WebSocket.class);
-        System.out.print("websocket num:" + webSocket.getOnlineCount() + "\n");
         ModelMonitorDO monitorDO = modelMonitorDOService.getOne(Long.parseLong(form.getMonitorId()));
+        Map pool = null;
+        Object session = null;
         while (true) {
-            if (webSocket.getOnlineCount() != 0) {
-                System.out.print("---websocket建立---\n");
+            pool = webSocket.getSessionPool();
+            session = pool.get(shopId);
+            if (pool.containsValue(session)) {
+                System.out.println("---websocket连接---");
                 break;
             }
         }
-
         while (true) {
-            if (webSocket.getOnlineCount() == 0) {
-                System.out.print("---websocket断开---\n");
+            pool = webSocket.getSessionPool();
+            if (!pool.containsKey(shopId)) {
                 break;
-            }
+            };
             List<MonitorResultDO> resultDOList =
                     SpringUtil.getBean(IMonitorResultDOService.class).findAllByVehicleIdAndPortIdAndModelIdAndIsRead(
                             monitorDO.getVehicleId(), monitorDO.getPortId().intValue(), monitorDO.getModelId().intValue(), 0
@@ -192,14 +212,14 @@ public class MonitorController {
                     //给前端结果（float）
                     msgAO.setResult(resultDO.getResult().toString());
                     String json = JSON.toJSONString(msgAO);
-                    webSocket.sendTextMessage("realtime" + monitorDO.getId(), json);
+                    webSocket.sendTextMessage(shopId, json);
                     //更新数据为已读状态
                     resultDO.setIsRead(1);
                     SpringUtil.getBean(IMonitorResultDOService.class).update(resultDO);
                 }
             }
         }
-        System.out.print("---close page---\n");
+        System.out.println("---page close---");
     }
 
     @RequestMapping(value = "/playBackMonitor")
